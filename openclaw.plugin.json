@@ -1,0 +1,79 @@
+{
+  "id": "artifacts",
+  "name": "Clawtifact",
+  "description": "Private Markdown/HTML artifacts with optional one-hour on-demand Cloudflare exposure.",
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "artifact_create",
+      "artifact_revoke"
+    ]
+  },
+  "toolMetadata": {
+    "artifact_create": {
+      "optional": true
+    },
+    "artifact_revoke": {
+      "optional": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "publicBaseUrl": {
+        "type": "string",
+        "description": "Reachable HTTPS origin serving /artifacts only; no path, credentials, query or fragment.",
+        "pattern": "^https://[^/?#]+/?$"
+      },
+      "cloudflare": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "binary",
+          "proxyUrl"
+        ],
+        "properties": {
+          "binary": {
+            "type": "string",
+            "description": "Absolute path to trusted cloudflared executable."
+          },
+          "proxyUrl": {
+            "type": "string",
+            "description": "Artifact-only proxy origin on http://127.0.0.1:<port>."
+          },
+          "lifetimeSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600,
+            "default": 3600
+          }
+        }
+      }
+    },
+    "oneOf": [
+      {
+        "required": [
+          "publicBaseUrl"
+        ],
+        "not": {
+          "required": [
+            "cloudflare"
+          ]
+        }
+      },
+      {
+        "required": [
+          "cloudflare"
+        ],
+        "not": {
+          "required": [
+            "publicBaseUrl"
+          ]
+        }
+      }
+    ]
+  }
+}
