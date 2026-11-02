@@ -50,7 +50,7 @@ test('HTTP preview, claim, refresh, race, denial, expiry and revocation', async 
   assert.match(winner.headers.get('set-cookie'), /SameSite=Strict/);
   assert.equal((await request()).status, 404);
   for (let n = 0; n < 2; n++) {
-    const view = await request(path, { headers: { cookie } });
+    const view = await request(path + "/content", { headers: { cookie } });
     assert.equal(view.status, 200);
     const html = await view.text();
     assert.match(html, /PRIVATE BODY/);
@@ -59,7 +59,7 @@ test('HTTP preview, claim, refresh, race, denial, expiry and revocation', async 
     assert.ok(!html.includes('<script>alert'));
     assert.ok(!html.includes('href="javascript:'));
     assert.ok(!html.includes('<img'));
-    assert.match(view.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+    assert.match(view.headers.get('content-security-policy'), /frame-ancestors 'self'/);
   }
   const unknown = await request('/artifacts/' + 'x'.repeat(43));
   assert.equal(await unknown.text(), await (await request()).text());

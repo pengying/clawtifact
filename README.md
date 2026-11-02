@@ -21,6 +21,40 @@ The agent chooses the format and styling without asking you to configure them.
 You can still request a particular format or style. Sharing is explicit: the
 plugin does not intercept replies or automatically publish plans.
 
+## Feedback and annotations
+
+A floating **Feedback** button expands into a desktop panel or mobile bottom
+sheet without adding a permanent header or card around your artifact.
+
+- Select text in either Markdown or HTML and choose **Use selected text**.
+- Choose **Select region** for diagrams, charts, canvas or other non-text content.
+  Drag a rectangle, or move it with arrow keys, resize with Shift+arrows and
+  confirm with Enter. Escape cancels.
+- Add, edit or delete draft comments, then choose **Send feedback** once.
+- The batch is sent for **discussion** in the original conversation's channel
+  and thread. It does not request an automatic revision or grant tool authority.
+- Queued means pending; only confirmed channel delivery is labeled delivered.
+  Ambiguous outcomes retain the batch ID and comments and are never auto-resent.
+
+The content lives in an opaque-origin sandboxed frame. The trusted overlay owns
+its credentials, composer and submit button; authored scripts cannot access those.
+A child bridge supplies untrusted selection/viewport hints only. Region selection
+still works when authored scripts disable the bridge, but unavailable scroll
+coordinates are explicitly marked unknown. Interactive rerenders can make text
+anchors stale; the quoted text and immutable artifact ID remain in the feedback.
+
+Drafts are kept in the browser tab's session storage when available. Each batch
+allows up to 20 comments, 1,000 characters per comment and 2,000 per quote, within
+a 32 KiB request. Up to 10 batches are admitted per artifact. Feedback requires
+the claimed browser session and CSRF protection; it never extends tunnel expiry.
+
+**Reload/restart limit:** delivery uses a host-captured opaque conversation
+binding. A plugin reload, Gateway restart or missing SDK support can make feedback
+unavailable for an older artifact. Reading still follows normal expiry, and drafts
+stay in the browser. Request a fresh artifact rather than silently retargeting a
+reset/new conversation. Old versions without a captured binding cannot gain one
+merely by opening the page. The create tool reports `feedbackAvailable`.
+
 ## Access lifecycle
 
 1. Ask OpenClaw for a URL. The plugin stores the artifact and issues a bearer link.
@@ -285,7 +319,7 @@ const page = await artifact_create({
     };</script></body></html>`,
 });
 
-// Result: { id, url, claimExpiresAt, readingWindowHours, publicLinkExpiresAt }
+// Result: { id, url, claimExpiresAt, readingWindowHours, publicLinkExpiresAt, feedbackAvailable }
 await artifact_revoke({ id: page.id }); // { revoked: true }
 ```
 
@@ -298,7 +332,7 @@ creating conversation. An ID from another conversation cannot revoke a document.
 Markdown is sanitized; raw HTML and remote images in Markdown are disabled.
 HTML mini pages are intentionally not sanitized: authored scripts execute under
 an HTTP CSP `sandbox allow-scripts` **without `allow-same-origin`**, giving the
-page an opaque origin and blocking access to cookies, storage and Gateway DOM.
+content frame an opaque origin and blocking access to cookies, storage and Gateway DOM.
 
 Mini pages must be self-contained:
 
@@ -308,7 +342,8 @@ Mini pages must be self-contained:
 - Include a viewport meta tag and a mobile-friendly layout.
 
 This is not a general app host or a complete no-network guarantee: authored code
-can alter its own page, consume CPU and navigate its own tab. Do not embed
+can alter its own content, consume CPU and attempt to navigate its own frame.
+The iframe does not allow top-level navigation or access to the feedback host. Do not embed
 credentials. HTTP policy is not replaceable by author-supplied meta tags.
 Cloudflare terminates TLS and can see traffic and bearer URLs.
 
@@ -321,9 +356,10 @@ filesystem traces or backups. Apply appropriate backup retention.
 
 ## Verification
 
-The implementation has **19 automated tests**, covering preview privacy,
+The implementation has **42 automated tests**, covering preview privacy,
 Origin/nonce checks, concurrent claims across workers, persistence, expiry,
-conversation-scoped revocation, HTML input/policy and wrapper-free Markdown.
+conversation-scoped revocation, HTML input/policy wrapper-free Markdown, feedback isolation/CSRF/limits, original-route binding,
+idempotent batches, delivery outcomes and frontend state/protocol behavior.
 Production dependency audit: zero known advisories at the last verification.
 An independent static security review reported no actionable P0–P2 findings.
 These are point-in-time results, not a security guarantee.
@@ -346,3 +382,12 @@ npm run dev
 The sample listens at `127.0.0.1:18947` and writes its private local URL to
 `.local/demo-url`. Secure cookies are disabled only in this loopback development
 server. Restarting creates a fresh sample; this is not a public URL.
+
+
+## Local development
+
+`npm run dev` starts loopback-only Markdown and interactive-HTML fixtures on port
+18948 (override with `PORT`). URLs are written to `.local/demo-urls.json`.
+Feedback delivery is **simulated**, saved to `.local/dev-feedback.json`, and never
+sent to a real channel. This command does not start Cloudflare. Use disposable
+fixtures, not a user's unclaimed artifact, for browser acceptance.

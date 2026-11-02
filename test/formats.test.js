@@ -77,7 +77,7 @@ test('HTML private lifecycle and restrictive opaque-origin sandbox', async t => 
   const session = store.claim(item.token);
   const headers = { cookie: `oc_art_session=${session}` };
   for (let n = 0; n < 2; n++) {
-    const view = await fetch(origin + path, { headers });
+    const view = await fetch(origin + path + "/content", { headers });
     assert.equal(view.status, 200);
     assert.match(await view.text(), /window.ready=true/);
     const csp = view.headers.get('content-security-policy');

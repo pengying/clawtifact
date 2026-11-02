@@ -65,7 +65,7 @@ export class ArtifactStore {
     if (!row || (row.expires_at !== null && this.now() >= row.expires_at)) return null;
     if (!row.session_hash) return this.now() < row.claim_until ? { kind: 'unclaimed' } : null;
     if (!validToken(session) || hash(session) !== row.session_hash || this.now() >= row.read_until) return null;
-    return { kind: 'claimed', title: row.title, format: row.format, [row.format === 'html' ? 'html' : 'markdown']: row.markdown, readUntil: row.read_until };
+    return { kind: 'claimed', id: row.id, title: row.title, format: row.format, [row.format === 'html' ? 'html' : 'markdown']: row.markdown, readUntil: row.read_until };
   }
   claim(token) {
     if (!validToken(token)) return null;
