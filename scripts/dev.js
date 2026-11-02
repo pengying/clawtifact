@@ -1,56 +1,34 @@
+// Local QA only: no Cloudflare and no real channel delivery.
 import { createServer } from 'node:http';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { ArtifactStore } from '../src/store.js';
+import { ArtifactStore, DAY } from '../src/store.js';
 import { createHandler } from '../src/http.js';
-const origin = 'http://127.0.0.1:18947';
-const store = new ArtifactStore({ file: '.local/dev.sqlite' });
-const item = store.create({ title: 'A better way to review plans', owner: 'demo', markdown: `# Review artifacts
-
-A quiet, readable place for plans, proposals, and technical notes. **You ask for a URL**, and OpenClaw prepares a document for this browser.
-
-## The experience
-
-1. Ask for a review link in Telegram.
-2. Open the link to claim it automatically.
-3. Read, refresh, and reply in your conversation.
-
-> The first browser owns access. Other browsers receive a 404.
-
-## Access policy
-
-| Stage | Window | Behavior |
-| --- | --- | --- |
-| Waiting to open | 24 hours | Previews reveal no content |
-| Claimed | 24 hours | Only the claiming browser can read |
-| Expired or revoked | None | Returns 404 |
-
-## Architecture
-
-\`\`\`mermaid
-flowchart LR
-  A[Ask for a URL] --> B[Create artifact]
-  B --> C[Open in browser]
-  C --> D[Atomic claim]
-  D --> E[Read and review]
-\`\`\`
-
-## Integration example
-
-\`\`\`javascript
-const artifact = await artifact_create({
-  title: 'Implementation plan',
-  markdown: '# Plan\\n\\nA clear set of next steps.',
-});
-\`\`\`
-
-### What comes next
-
-Keep the first version focused on sharing and reading. Conversations stay in Telegram; comments, editing, and approval workflows are outside v1.
-` });
+import { FeedbackBroker } from '../src/feedback.js';
+const port = Number(process.env.PORT || 18948);
+const origin = `http://127.0.0.1:${port}`;
 mkdirSync('.local', { recursive: true });
-writeFileSync('.local/demo-url', `${origin}/artifacts/${item.token}`, { mode: 0o600 });
-const server = createServer(createHandler({ store, origin, secure: false, onError: console.error }));
-server.listen(18947, '127.0.0.1', () => console.log('Local sample ready; URL saved in .local/demo-url (not public)'));
-function stop() { server.close(() => { store.close(); process.exit(); }); }
-process.on('SIGINT', stop);
-process.on('SIGTERM', stop);
+const store = new ArtifactStore({ file: '.local/dev.sqlite' });
+const sent = [];
+const feedback = new FeedbackBroker({ system: {
+  captureSessionEventTarget: async () => ({}),
+  enqueueSessionEvent(text) {
+    sent.push({ text }); writeFileSync('.local/dev-feedback.json', JSON.stringify(sent), { mode: 0o600 });
+    return { accepted: Promise.resolve({ ok: true }), settled: new Promise(resolve => setTimeout(() => resolve({ status: 'completed', delivered: true }), 800)) };
+  },
+} });
+const target = await feedback.capture({ agentId: 'demo', sessionKey: 'demo', deliveryContext: { channel: 'demo', to: 'local-only' } });
+const urls = {};
+for (const [format, content] of Object.entries({
+  markdown: '# Feedback QA\n\nThis local demo never sends real messages. Select this sentence and add a comment.\n\n## Architecture\n\n```mermaid\nflowchart LR\n A[Artifact] --> B[Feedback] --> C[Discussion]\n```\n\n' + Array.from({ length: 20 }, (_, i) => `## Section ${i + 1}\n\nA readable paragraph for scrolling and selection.`).join('\n\n'),
+  html: '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:18px system-ui;background:#101a17;color:#e0eee6;padding:28px}button{padding:12px}canvas{border:1px solid #9be0c0}</style></head><body><h1>Interactive feedback QA</h1><p>This local demo never sends real messages. Select this sentence.</p><button id="counter">Click count: 0</button><p><canvas id="chart" width="320" height="160"></canvas></p><script>let n=0;document.querySelector("#counter").onclick=e=>e.target.textContent="Click count: "+ ++n;let c=document.querySelector("canvas").getContext("2d");c.fillStyle="#75d5b0";c.fillRect(20,40,90,100);c.fillStyle="#b4a1f2";c.fillRect(150,10,90,130);</script><p style="margin-top:1000px">End of interactive page.</p></body></html>',
+})) {
+  const item = store.create({ title: `Feedback ${format} QA`, [format]: content, owner: 'demo' });
+  feedback.bind(item.id, target, Date.now() + DAY);
+  urls[format] = `${origin}/artifacts/${item.token}`;
+}
+writeFileSync('.local/demo-urls.json', JSON.stringify(urls), { mode: 0o600 });
+const handler = createHandler({ store, origin, secure: false, feedback, onError: () => console.error('Local QA request failed') });
+const server = createServer(handler);
+server.listen(port, '127.0.0.1', () => console.log('Local QA ready on loopback; URLs saved in .local/demo-urls.json. Delivery is simulated.'));
+function stop() { server.close(() => { feedback.clear(); store.close(); process.exit(); }); }
+process.on('SIGINT', stop); process.on('SIGTERM', stop);

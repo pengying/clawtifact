@@ -43,3 +43,32 @@ watchdog rather than relying only on fake clocks. Managed mode stays closed on
 startup, visits cannot open/extend it, and artifact tokens are capped by the
 session deadline. The OS stop grace is at most five seconds; HTTP admission and
 record expiry enforce the application deadline independently.
+
+
+## Annotation feature boundaries
+
+The feedback host never embeds authored HTML or Markdown. A same-origin URL
+loads the content in an `allow-scripts`-only, opaque-origin iframe. Only public
+allowlisted code assets have wildcard CORS for module loading; document and
+feedback responses do not. The content endpoint allows same-origin framing,
+while the credential-bearing host remains unframeable. Child postMessage data
+is untrusted selection/viewport context, never a send instruction or route.
+
+Submission requires a valid claimed session, exact Origin, JSON content type,
+and separate artifact-path-scoped HttpOnly double-submit CSRF cookie. The server
+validates anchors, text/body sizes, batch count and immutable ID/content pairs.
+Original destination and SDK opaque session-generation target are captured only
+from trusted tool context. No browser-supplied route or model setting is accepted.
+Opaque handles are intentionally not reconstructed after reload; old feedback
+fails closed. Submission and confirmed delivery are distinct states; uncertain
+outcomes must not be automatically replayed.
+
+Comments and quoted content are explicitly labeled untrusted discussion data
+when passed to the originating session. Sending feedback is not authorization
+to modify artifacts, execute commands or perform other external actions. Only
+the user-controlled host composer can initiate a feedback submission; scripts
+inside the content can spoof selection hints but cannot submit a batch.
+
+Browser-loopback navigation was blocked by the current browser policy during
+local acceptance. HTTP integration and DOM-harness tests do not establish actual
+browser sandbox enforcement, mobile visuals or real-channel end-to-end delivery.

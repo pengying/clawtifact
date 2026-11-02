@@ -26,3 +26,19 @@ export function reader({ title, markdown, html, format }) {
   });
   return shell(title, `<main><article>${content}</article></main>`, true);
 }
+
+
+// Authored content is never interpolated into the credential-bearing host.
+export function feedbackHost({ path, artifactId, csrf, enabled }) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Artifact</title><link rel="stylesheet" href="/artifacts/assets/feedback.css"><script type="module" src="/artifacts/assets/feedback.js"></script></head><body><iframe id="artifact-content" title="Artifact content" src="${escape(path)}/content" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe><div id="artifact-feedback" data-path="${escape(path)}" data-artifact-id="${escape(artifactId)}" data-csrf="${escape(csrf)}" data-enabled="${enabled ? 'true' : 'false'}"></div></body></html>`;
+}
+
+export function framedReader(document, origin) {
+  const markup = reader(document);
+  const bridge = `<script defer src="${escape(origin)}/artifacts/assets/bridge.js"></script>`;
+  // The helper has no credentials; authored scripts can interfere with selection.
+  // The trusted parent region selector remains available if that happens.
+  // Browsers merge the following authored html/head/body into the same document.
+  if (document.format === 'html') return '<!doctype html>' + bridge + markup;
+  return markup.replace('</head>', bridge + '</head>');
+}
