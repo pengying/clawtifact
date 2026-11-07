@@ -55,6 +55,17 @@ stay in the browser. Request a fresh artifact rather than silently retargeting a
 reset/new conversation. Old versions without a captured binding cannot gain one
 merely by opening the page. The create tool reports `feedbackAvailable`.
 
+
+**Upgrade dependency:** Feedback needs both documented
+`api.runtime.system.captureSessionEventTarget` and `enqueueSessionEvent`, including
+an opaque `expectedTarget` and admission/settlement receipts. The package's base
+compatibility range alone does not guarantee this optional feature. Missing or
+invalid target capture leaves artifact creation and reading available with
+`feedbackAvailable: false`. It never switches to `enqueueSystemEvent`, initializes
+a replacement conversation, or recaptures authority after reload/revocation.
+Run the exact-revision [upgrade checks](docs/verification.md#upgrade-replay) before
+changing the Gateway version.
+
 ## Access lifecycle
 
 1. Ask OpenClaw for a URL. The plugin stores the artifact and issues a bearer link.

@@ -56,3 +56,27 @@ test('managed Cloudflare mode stays closed on startup and rejects invalid conten
   const create = reg.factory({ sessionKey: 'a' })[0];
   await assert.rejects(create.execute('x', { title: 'Invalid', markdown: '' }), /Markdown/);
 });
+
+test('artifact_create reports feedback unavailable when the host returns no opaque authority', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'art-no-target-'));
+  t.after(() => rmSync(dir, { recursive: true }));
+  const reg = {};
+  let captures = 0;
+  mod.default.register({
+    pluginConfig: { publicBaseUrl: 'https://review.example.com' },
+    runtime: { state: { resolveStateDir: () => dir }, system: {
+      async captureSessionEventTarget() { captures++; return undefined; },
+      enqueueSessionEvent() { assert.fail('feedback has no retained authority'); },
+      enqueueSystemEvent() { assert.fail('no passive event fallback'); },
+    } },
+    logger: { error() {} },
+    registerTool: factory => reg.factory = factory,
+    registerHttpRoute: route => reg.route = route,
+    registerService: service => reg.service = service,
+  });
+  t.after(() => reg.service.stop());
+  const created = await reg.factory({ agentId: 'main', sessionKey: 'original' })[0].execute('call', { title: 'Plan', markdown: '# Plan' });
+  assert.equal(created.details.feedbackAvailable, false);
+  assert.equal(captures, 1);
+  assert.match(created.details.url, /^https:\/\/review\.example\.com\/artifacts\//);
+});

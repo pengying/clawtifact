@@ -39,21 +39,23 @@ export function validateFeedback(value) {
   return { id: value.id.toLowerCase(), comments };
 }
 const view = batch => ({ batchId: batch.id, status: batch.status });
+const opaqueTarget = target => target !== null && typeof target === 'object' && !Array.isArray(target);
 
 export class FeedbackBroker {
   constructor({ system, now = Date.now } = {}) { this.system = system; this.now = now; this.routes = new Map(); }
   async capture(ctx) {
-    if (!ctx.agentId || !ctx.sessionKey || !this.system?.captureSessionEventTarget || !this.system?.enqueueSessionEvent) return null;
+    if (!ctx.agentId || !ctx.sessionKey || typeof this.system?.captureSessionEventTarget !== 'function' || typeof this.system?.enqueueSessionEvent !== 'function') return null;
     try {
       const expectedTarget = await this.system.captureSessionEventTarget(ctx.agentId, ctx.sessionKey);
+      if (!opaqueTarget(expectedTarget)) return null;
       const deliveryContext = ctx.deliveryContext ? Object.fromEntries(['channel', 'to', 'accountId', 'threadId'].filter(k => ctx.deliveryContext[k] !== undefined).map(k => [k, ctx.deliveryContext[k]])) : undefined;
-      return { agentId: ctx.agentId, sessionKey: ctx.sessionKey, expectedTarget, deliveryContext };
+      return Object.freeze({ agentId: ctx.agentId, sessionKey: ctx.sessionKey, expectedTarget, deliveryContext: deliveryContext && Object.freeze(deliveryContext) });
     } catch { return null; }
   }
   prune() { for (const [id, route] of this.routes) if (this.now() >= route.expiresAt) this.routes.delete(id); }
   bind(id, captured, expiresAt) {
     this.prune();
-    if (captured && this.routes.size < 1000) this.routes.set(id, { captured, expiresAt, batches: new Map() });
+    if (opaqueTarget(captured?.expectedTarget) && this.routes.size < 1000) this.routes.set(id, { captured, expiresAt, batches: new Map() });
   }
   available(id) { this.prune(); return this.routes.has(id); }
   status(id) {

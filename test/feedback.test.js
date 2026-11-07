@@ -75,3 +75,66 @@ test('region feedback distinguishes unavailable scroll data from known coordinat
   assert.equal(mod.validateFeedback({ id, comments: [{ text: 'This chart', anchor: unknown }] }).comments[0].anchor.scrollKnown, false);
   assert.throws(() => mod.validateFeedback({ id, comments: [{ text: 'This chart', anchor: { ...anchor, scrollKnown: 'yes' } }] }));
 });
+
+test('absent or invalid opaque capture authority never enables or dispatches feedback', async () => {
+  for (const expectedTarget of [undefined, null, false, 0, '', 'copied-token', []]) {
+    let dispatches = 0;
+    const broker = new mod.FeedbackBroker({ system: {
+      captureSessionEventTarget: async () => expectedTarget,
+      enqueueSessionEvent() { dispatches++; throw new Error('must not dispatch'); },
+      enqueueSystemEvent() { assert.fail('passive system events cannot replace captured authority'); },
+    } });
+    const captured = await broker.capture({ agentId: 'main', sessionKey: 'original' });
+    assert.equal(captured, null, `reject missing/invalid target ${String(expectedTarget)}`);
+    broker.bind('artifact', captured, Date.now() + 10000);
+    assert.equal(broker.available('artifact'), false);
+    assert.throws(() => broker.submit('artifact', payload(), { title: 'Plan' }), /unavailable/i);
+    assert.equal(dispatches, 0);
+  }
+});
+
+test('captured authority and original route remain immutable until dispatch', async () => {
+  const f = fixture();
+  const deliveryContext = { channel: 'telegram', to: 'original', threadId: 'original-thread' };
+  const captured = await f.broker.capture({ agentId: 'main', sessionKey: 'original', deliveryContext });
+  assert.throws(() => { captured.expectedTarget = undefined; }, TypeError);
+  assert.throws(() => { captured.deliveryContext.threadId = 'replacement'; }, TypeError);
+  deliveryContext.threadId = 'changed-later';
+  f.broker.bind('artifact', captured, Date.now() + 10000);
+  f.broker.submit('artifact', payload(), { title: 'Plan' });
+  const [, , options] = f.calls.find(x => x[0] === 'enqueue');
+  assert.equal(options.expectedTarget, f.target, 'pass the original opaque handle by identity');
+  assert.equal(options.deliveryContext.threadId, 'original-thread');
+  assert.equal('createIfMissing' in options, false, 'completion cannot initialize replacement ingress');
+  f.accepted.resolve({ ok: true }); f.settled.resolve({ status: 'completed', delivered: true });
+});
+
+test('retired original authority fails without recapture or another dispatch path', async () => {
+  let active = true; let captures = 0; let dispatches = 0;
+  const expectedTarget = Object.freeze({});
+  const broker = new mod.FeedbackBroker({ system: {
+    async captureSessionEventTarget() { captures++; return expectedTarget; },
+    enqueueSessionEvent(_message, options) {
+      dispatches++;
+      assert.equal(options.expectedTarget, expectedTarget);
+      if (!active) throw new Error('retired owner');
+      assert.fail('test revokes authority before dispatch');
+    },
+    enqueueSystemEvent() { assert.fail('no route fallback'); },
+  } });
+  broker.bind('artifact', await broker.capture({ agentId: 'main', sessionKey: 'original' }), Date.now() + 10000);
+  active = false;
+  assert.equal(broker.submit('artifact', payload(), { title: 'Plan' }).status, 'failed');
+  assert.equal(broker.submit('artifact', payload(), { title: 'Plan' }).status, 'failed');
+  assert.equal(captures, 1); assert.equal(dispatches, 1);
+  broker.clear();
+  assert.throws(() => broker.submit('artifact', payload(), { title: 'Plan' }), /unavailable/i);
+  assert.equal(captures, 1); assert.equal(dispatches, 1);
+});
+
+test('binding rejects a route without retained opaque authority', () => {
+  const { broker } = fixture();
+  broker.bind('artifact', { agentId: 'main', sessionKey: 'original' }, Date.now() + 10000);
+  assert.equal(broker.available('artifact'), false);
+  assert.throws(() => broker.submit('artifact', payload(), { title: 'Plan' }), /unavailable/i);
+});

@@ -8,11 +8,11 @@ import { ArtifactStore } from '../src/store.js';
 import { FeedbackBroker } from '../src/feedback.js';
 import { createHandler } from '../src/http.js';
 const id = '12345678-1234-4234-8234-123456789abc';
-async function fixture(t, format) {
+async function fixture(t, format, { target = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'feedback-http-'));
   let now = 1000; const calls = [];
   const store = new ArtifactStore({ file: join(dir, 'db'), now: () => now });
-  const broker = new FeedbackBroker({ now: () => now, system: { captureSessionEventTarget: async () => ({}), enqueueSessionEvent(text, opts) { calls.push({ text, opts }); return { accepted: Promise.resolve({ ok: true }), settled: Promise.resolve({ status: 'completed', delivered: true }) }; } } });
+  const broker = new FeedbackBroker({ now: () => now, system: { captureSessionEventTarget: async () => target, enqueueSessionEvent(text, opts) { calls.push({ text, opts }); return { accepted: Promise.resolve({ ok: true }), settled: Promise.resolve({ status: 'completed', delivered: true }) }; } } });
   const item = store.create({ title: 'Private title', [format]: format === 'html' ? '<!doctype html><html><body>SECRET-CONTENT<script>window.authored=true</script></body></html>' : '# SECRET-CONTENT', owner: 'source', expiresAt: 2000 });
   broker.bind(item.id, await broker.capture({ agentId: 'main', sessionKey: 'source', deliveryContext: { channel: 'telegram', to: 'source', threadId: 'original-thread' } }), 2000);
   let handler;
@@ -70,4 +70,14 @@ test('revoked and lost-target artifacts cannot send feedback', async t => {
   const f = await fixture(t, 'html');
   f.broker.clear(); assert.equal((await f.post()).status, 503); assert.equal(f.calls.length, 0);
   f.store.revoke(f.item.id, 'source'); assert.equal((await f.post()).status, 404);
+});
+
+
+test('missing opaque capture authority disables the browser feedback boundary', async t => {
+  const f = await fixture(t, 'markdown', { target: null });
+  assert.match(f.html, /data-enabled="false"/);
+  assert.equal((await f.post()).status, 503);
+  assert.equal(f.calls.length, 0);
+  const status = await f.request('/feedback', { headers: { cookie: f.cookie } });
+  assert.deepEqual(await status.json(), { enabled: false, batches: [] });
 });
