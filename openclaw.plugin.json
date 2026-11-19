@@ -1,14 +1,19 @@
 {
   "id": "artifacts",
   "name": "Clawtifact",
-  "description": "Private Markdown/HTML artifacts with optional one-hour on-demand Cloudflare exposure.",
+  "description": "Private versioned Markdown, HTML, React, SVG, Mermaid and code artifacts with live SSE updates.",
   "activation": {
     "onStartup": true
   },
   "contracts": {
     "tools": [
       "artifact_create",
-      "artifact_revoke"
+      "artifact_revoke",
+      "artifact_feedback_read",
+      "artifact_chat_respond",
+      "artifact_update",
+      "artifact_inspect",
+      "artifact_message"
     ]
   },
   "toolMetadata": {
@@ -16,6 +21,21 @@
       "optional": true
     },
     "artifact_revoke": {
+      "optional": true
+    },
+    "artifact_feedback_read": {
+      "optional": true
+    },
+    "artifact_chat_respond": {
+      "optional": true
+    },
+    "artifact_update": {
+      "optional": true
+    },
+    "artifact_inspect": {
+      "optional": true
+    },
+    "artifact_message": {
       "optional": true
     }
   },
@@ -75,5 +95,12 @@
         }
       }
     ]
-  }
+  },
+  "backupResources": [
+    {
+      "disposition": "include",
+      "scope": "state",
+      "relativePath": "artifacts"
+    }
+  ]
 }

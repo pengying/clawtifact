@@ -1,5 +1,33 @@
 # Security review — 2026-10-31
 
+## Live revisions / formats 0.4 follow-up
+
+New immutable revision records, publication receipts and the owner review mode
+are plugin-owned SQLite data. The owner update/inspect/message tools recheck the
+exact original captured session incarnation and channel route; browser tokens
+cannot publish. Review-driven mode is owner-selected and document-scoped, never
+accepted from a reviewer POST. Reviewer instructions stay untrusted. The isolated
+Chat completion has no action tools; any revision workflow stays in the original
+agent and must not expose private history.
+
+Claim cookies guard SSE/status/content/history/image access. Full snapshots have
+epoch/cursor ordering independent of head revisions. Connection counts, payload
+sizes and slow consumers are bounded; expiry/revocation close streams, and
+shutdown is reconnectable. No heartbeat/update extends a deadline. Images, batches
+and messages bind to exact revisions, including dedup fingerprints. A normalization
+result is checked again after awaiting; a late result cannot cross a frame change.
+
+The viewer uses a fresh opaque-origin iframe per revision and correlated bridge
+readiness before acknowledging application. An HTTP error-page load is not an
+applied revision. Drafts and active inputs prevent switching. Authored activity
+reports cannot grant write authority; HTML/React never autoapply based on them.
+
+React syntax transformation does not execute authored JavaScript on the server.
+Only local React modules resolve inside the browser sandbox. Script tokenizer and
+tagged-template escaping are regression-covered. SVG is rendered in inert image
+mode, code is escaped/highlighted, Mermaid remains strict. The content sandbox
+retains no same-origin, network, storage, frame, form or worker privileges.
+
 An independent read-only Codex review of the mixed-format candidate and complete
 service source reported **no actionable P0–P2 findings**. Scope: public route
 isolation, token/session access, atomic claims, Origin/nonce checks, conversation
@@ -72,3 +100,9 @@ inside the content can spoof selection hints but cannot submit a batch.
 Browser-loopback navigation was blocked by the current browser policy during
 local acceptance. HTTP integration and DOM-harness tests do not establish actual
 browser sandbox enforcement, mobile visuals or real-channel end-to-end delivery.
+
+## Automatic region images — 2026-11-08 implementation
+
+Pinned html-to-image is bundled into the existing classic sandbox bridge; it does not add remote assets or widen CSP/sandbox permissions. Only the exact parent origin can solicit a region render. The parent accepts only a matching pending request ID from its exact iframe, JPEG data and bounded size. It passes no CSRF, routes, cookies, transcripts or arbitrary document selectors. Authored content may interfere or fabricate pixels, so returned images are untrusted reviewer-browser content, not authenticated visual evidence.
+
+Rendering uses current DOM/computed state, not a server-side initial-HTML replay. It rejects known unsupported nested scrolling/scrolled fixed or sticky content and viewport/content changes during capture. Late/deleted/reset/navigation results do not become attachments. Rendering/crop preview remains local; only explicit Send invokes the existing claim+CSRF-bound upload and JPEG re-encoding path. Existing image capacity and native original-route read restrictions remain. No model/channel action is authorized by image contents.

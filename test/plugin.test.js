@@ -21,7 +21,7 @@ test('plugin registers a lazy, session-scoped tool factory and lifecycle', async
   assert.equal(existsSync(join(dir, 'artifacts')), false, 'catalog inspection does not touch state');
   assert.equal(registrations.route.auth, 'plugin');
   assert.equal(registrations.route.match, 'prefix');
-  assert.deepEqual(registrations.options.names, ['artifact_create', 'artifact_revoke']);
+  assert.deepEqual(registrations.options.names, ['artifact_create', 'artifact_revoke', 'artifact_feedback_read', 'artifact_chat_respond', 'artifact_update', 'artifact_inspect', 'artifact_message']);
   assert.equal(registrations.options.workspaceAccess, false);
   const tools = registrations.factory({ sessionKey: 'session:a' });
   const created = await tools[0].execute('call', { title: 'Plan', markdown: '# Plan' });
@@ -33,6 +33,35 @@ test('plugin registers a lazy, session-scoped tool factory and lifecycle', async
   assert.equal(registrations.factory({}), null, 'no ambient session, no publication');
   await assert.rejects(tools[0].execute('call', { title: 'Plan', markdown: '' }), /Markdown/);
   await registrations.service.stop();
+});
+
+test('Chat support is independent of creation-turn policy/delivery while screenshot reads retain their permission gate', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'art-feature-policy-')); t.after(() => rmSync(dir, { recursive: true }));
+  const reg = {}; let allowed = false;
+  mod.default.register({
+    pluginConfig: { publicBaseUrl: 'https://review.example.com' }, logger: { error() {} },
+    runtime: {
+      state: { resolveStateDir: () => dir },
+      system: { captureSessionEventTarget: async () => ({}), enqueueSessionEvent() { throw new Error('not expected'); } },
+      media: { getImageMetadata() {}, resizeToJpeg() {} },
+      llm: { complete() {} },
+      agent: { explainToolAvailability: async params => ({ tools: params.toolNames.map(name => ({ name, available: allowed })) }) },
+    },
+    registerTool: factory => reg.factory = factory, registerHttpRoute: route => reg.route = route, registerService: service => reg.service = service,
+  });
+  t.after(() => reg.service.stop());
+  const ctx = { agentId: 'main', sessionKey: 'source', sessionId: 'incarnation', deliveryContext: { channel: 'telegram', to: 'source', accountId: 'default' }, assertInvocationCurrent() {}, delivery: { send() {} } };
+  const tools = reg.factory(ctx);
+  const denied = (await tools[0].execute('call', { title: 'Plan', markdown: '# Plan' })).details;
+  assert.equal(denied.imagesAvailable, false); assert.equal(denied.chatAvailable, true, 'Chat support must not latch a creation-turn policy snapshot');
+  allowed = true;
+  const enabled = (await tools[0].execute('call', { title: 'Plan', markdown: '# Plan' })).details;
+  assert.equal(enabled.imagesAvailable, true); assert.equal(enabled.chatAvailable, true);
+  const background = reg.factory({ ...ctx, delivery: undefined });
+  const deferred = (await background[0].execute('call', { title: 'Background plan', markdown: '# Plan' })).details;
+  assert.equal(deferred.chatAvailable, true, 'creation does not require a turn-scoped delivery capability');
+  assert.ok(tools.find(tool => tool.name === 'artifact_feedback_read'));
+  assert.ok(tools.find(tool => tool.name === 'artifact_chat_respond'));
 });
 
 test('plugin requires an explicit HTTPS origin', () => {

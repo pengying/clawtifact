@@ -1,5 +1,51 @@
 # Clawtifact
 
+## Live revisions and core artifact types — 0.4
+
+New artifacts support **Markdown, HTML, React/JSX, SVG, Mermaid and code**. Pass
+exactly one source field to `artifact_create`; `language` is optional for code.
+Code is displayed, never run on the server. SVG is an inert image. React requires
+a default-export component and supports only local `react`, `react-dom/client`
+and `react/jsx-runtime` imports—no remote packages, network or Node APIs. Mermaid
+uses the bundled strict renderer. HTML can express slides, charts and dashboards;
+this is core format coverage, not a claim of every Claude cloud feature.
+
+Each new document has one stable link and immutable revisions. Use
+`artifact_inspect` to read an exact source revision, then `artifact_update` with
+`id`, `expectedRevision`, UUIDv4 `requestId`, optional `summary`, and exactly one
+complete source field. Concurrent writers conflict. A retry with the same request
+and payload returns its original receipt; after an uncertain response, inspect
+that request ID instead of creating another publication.
+
+The trusted viewer receives authenticated SSE snapshots. Read-only documents can
+switch automatically when idle; HTML/React require explicit **Apply** because the
+iframe restarts application state. A small nonmodal update bar sits above the
+bottom-left controls. Active drafts, selections, image processing/uploads,
+submissions and Chat composition pin the reviewed revision, including across
+browser reload. Old Chat version links open exact revisions. No update submits
+feedback, erases drafts, extends access or pretends a browser acknowledgement
+means the person read the content. Reconnect reconciles complete state using an
+epoch and independent snapshot cursor, not just the content sequence.
+
+`artifact_message({id,messageId,revisionId,text})` posts one idempotent agent note
+to the discussion over SSE without another user message. It does not send a
+second channel mirror. Owner tools require the captured original agent, session,
+session incarnation and route. Enable these new optional tools in the existing
+agent tool policy just like the original artifact tools.
+
+`feedbackMode: "discuss"` is the default. Only an owner-authorized creation with
+`feedbackMode: "revise"` enables submitted feedback/Chat suggestions to drive
+document-only revisions in the original agent workflow. Drafts trigger nothing.
+The isolated Chat model remains discussion-only. Link-holder text never grants
+commands, external actions, other-document access or private-history disclosure.
+The owner-selected mode persists; runtime routing handles do not. After plugin
+reload, lost bindings fail closed instead of silently recapturing authority.
+
+Legacy pre-0.4 links remain frozen at their original source. Their tokens,
+single-browser claims and deadlines are preserved by the plugin-owned migration.
+See [verification and upgrade procedure](docs/verification.md#live-revisions-04)
+for backup/rollback and actual qualification limits.
+
 Turn an explicit request for a URL into a private, browser-friendly artifact.
 The agent chooses **Markdown** for simple plans and documents, or a
 self-contained **HTML/CSS/JavaScript mini page** when layout or interaction
@@ -23,25 +69,142 @@ plugin does not intercept replies or automatically publish plans.
 
 ## Feedback and annotations
 
-A floating **Feedback** button expands into a desktop panel or mobile bottom
-sheet without adding a permanent header or card around your artifact.
+A floating pencil animates into an X and reveals two icon actions: **Selector**
+and **Chat**, with hover and keyboard-focus hints. Opening and closing animate;
+reduced-motion settings are respected. Feedback uses the approved compact bottom-left composer and numbered draft tray,
+including on narrow screens with space reserved for the floating action. Chat
+keeps its separate responsive panel. Neither adds a permanent header or wrapper. Chat is unavailable when its host capability or
+original-session tool permission is unavailable, rather than faking a reply.
 
-- Select text in either Markdown or HTML and choose **Use selected text**.
-- Choose **Select region** for diagrams, charts, canvas or other non-text content.
-  Drag a rectangle, or move it with arrow keys, resize with Shift+arrows and
-  confirm with Enter. Escape cancels.
-- Add, edit or delete draft comments, then choose **Send feedback** once.
+- Select text in either Markdown or HTML, then open **Selector** to comment on it.
+- Choose **Selector** for diagrams, charts, canvas or other non-text content.
+  Hover to highlight an element; click/tap to select it, or drag to draw any
+  rectangle without switching modes. Selection blocks the underlying controls.
+  The comment composer opens on release with the current outline still visible. The X exits selection.
+  Keyboard arrows move; Shift+arrows resize; Enter confirms and Escape cancels.
+  Focusable Move/Resize buttons provide a non-drag alternative without a
+  persistent mode toolbar. If element hints are unavailable, draw a rectangle;
+  unknown scroll position still blocks selection rather than inventing it.
+- Inert numbered rectangles live inside the scrolling document, so mobile
+  momentum scrolling does not wait for host scroll reports. They hide after a
+  width reflow, not merely a browser-chrome/keyboard height change. To change a
+  comment, delete it from the trusted list and select again.
+- The compact comment card has a text box, **Delete** and **Add**. Adding returns
+  to a short numbered list with **Delete** only; **Shift+Enter** is the Add shortcut
+  (not Submit). **+** adds another selection without hiding earlier outlines.
+  Choose **Submit (N)** once when the batch is ready. There is no **More options**
+  menu, edit/adjust controls, metadata labels, or manual capture toolbar. Automatic
+  image capture is silent on success; failures and uncertain delivery stay visible.
+  There is no redundant “Not sent” banner, and typing has no yellow focus ring.
 - The batch is sent for **discussion** in the original conversation's channel
   and thread. It does not request an automatic revision or grant tool authority.
-- Queued means pending; only confirmed channel delivery is labeled delivered.
+- After Submit, retain and lock the list until the exact original agent reads the
+  batch or channel delivery is confirmed. A guarded read shows **Received by the
+  agent**, clears the submitted list, and allows another selection; this is not
+  a claim that the channel mirror delivered. A confirmed transport receipt shows
+  **Submitted. Thank you.** The card stays open in either case.
   Ambiguous outcomes retain the batch ID and comments and are never auto-resent.
+
+### Screenshot references
+
+After selecting, a region automatically requests a **rendered preview**
+of the artifact's current page state. It stays local and attaches to the comment;
+**no image uploads before Submit feedback**. No preview or image-success label
+adds steps to the comment flow. A visible **Image unavailable** state and **Retry image**
+offer recovery or geometry-only feedback.
+
+This is best-effort DOM-to-image rendering, not a browser/phone screenshot or a
+pixel-perfect promise. Rendering runs inside the existing opaque-origin sandbox:
+no phone-screen capture permission, same-origin grant, or new network access.
+A changed viewport/DOM, nested scrolled content, or scrolled fixed/sticky layouts
+is rejected rather than attaching misleading pixels. Unsupported content/browser
+behavior must visibly fall back. Generated images are bounded to1600px per side;
+render requests expire after8 seconds. The source script cannot set channel routes.
+
+To change a rectangle or comment, delete it and select again for a fresh crop.
+Previously uploaded references remain valid for unmodified restored comments;
+missing local images block sending until the affected comment is recreated.
+Manual file/tab capture controls are no longer in the feedback card. Actual DOM
+rendering and physical browser qualification must be recorded separately;
+Node tests and desktop narrow-width checks are not mobile Safari tests.
+
+The server accepts only bounded PNG/JPEG input, probes dimensions and re-encodes
+to JPEG (maximum1600px side /1MiB). Up to8 images and4MiB per artifact,32MiB
+globally, and4 concurrent normalizations bound memory/work. Originals and EXIF
+metadata are not retained. Crops and discussion bindings are ephemeral and are
+erased at expiry/revocation/plugin stop. Local binary drafts are not serialized
+into sessionStorage: after refresh, a not-yet-uploaded crop must be recreated by selecting again.
+
+The original agent calls **artifact_feedback_read** for the exact submitted
+batch when available. A successful, authority-checked read acknowledges receipt
+in the viewer independently of channel-delivery bookkeeping. It receives native image tool-result content with matching comment numbers,
+not an image URL or base64 pasted into text. Access requires the exact original
+agent/session/incarnation and channel/account/thread tuple plus live invocation
+authority. Screenshot pixels are untrusted content, never operator instructions.
+Commentary is delivered separately to the original thread. The read tool does
+not send messages/images, confirm channel delivery, or grant revision authority.
+Older hosts may omit message-tool sends from ordinary event settlement: execution
+without a transport acknowledgement is unconfirmed, not a definite delivery
+failure. Proven agent receipt is not downgraded by a later incomplete receipt.
+
+### In-artifact Chat
+
+Chat messages and replies update without reloading. Each revision stays immutable. New documents keep one stable link and receive complete revisions over SSE; legacy links stay frozen. A queued request wakes only the
+captured original session, where **artifact_chat_respond** invokes a fresh
+artifact-only direct-provider completion. The anonymous page cannot call a model,
+choose credentials/model/destination, or access owner history, memory or tools.
+
+Chat explicitly selects the captured original agent through the host's global
+completion API. Enable only the plugin-scoped selection permission:
+
+```sh
+openclaw config set plugins.entries.artifacts.llm.allowAgentIdOverride true
+```
+
+This does not grant model or credential overrides, or change global permissions.
+The plugin still verifies the exact original agent, session incarnation and route
+at response time; the reviewer cannot choose another agent. The host's current
+Gateway authority and model policy remain required. Direct-provider completion
+uses host-managed provider transport, not necessarily the original agent's CLI
+or harness.
+
+The exact reviewer/model exchange is mirrored through that newly admitted turn's
+host-bound original-route delivery capability when available. Coding sessions instead
+use the SDK's captured original-session queue; its settlement receipt confirms
+delivery, not queue acceptance. The reply tool's result must not be relayed again.
+Ambiguous mirroring is labeled unconfirmed and never blindly retried. Busy original
+sessions may delay a reply; queued is not described as model typing.
+
+Chat support is not latched to the creation turn's permissions. Each response
+checks current tool policy and the exact original session incarnation/route
+before inference. A pre-inference permission
+blocker is shown with an explicit **Retry reply** action (same immutable message
+ID; at most three queue attempts, at least five seconds apart). It can also be
+resumed by the original session's authorized reply tool. Uncertain requests,
+inference failures and unconfirmed mirrors are never automatically retried.
+`chatAvailable` indicates host/route support, not a promise of current permission.
+
+Context is bounded to an artifact excerpt (24000characters, explicitly marked if
+truncated), recent submitted comments and four prior exchanges. A separate scoped
+vision description of up to two recent crops may supplement the text completion
+when the configured media-understanding capability is available. The text-only
+Chat model does not directly receive pixels; unavailable image understanding is
+acknowledged rather than guessed. The original agent's native image read remains
+separate. Chat only discusses; it does not revise, execute commands or authorize
+external actions.
+
+Limits:2000characters/reviewer message,30messages/artifact, one pending turn,
+minimum5seconds between new sends, at most4 simultaneous completions globally.
+Model and vision calls use the configured agent/provider policies and may incur
+normal model usage. No action tools are supplied. Chat, polling, capture and
+comments never extend public exposure or revive expired/revoked artifacts.
 
 The content lives in an opaque-origin sandboxed frame. The trusted overlay owns
 its credentials, composer and submit button; authored scripts cannot access those.
 A child bridge supplies untrusted selection/viewport hints only. Region selection
 still works when authored scripts disable the bridge, but unavailable scroll
 coordinates are explicitly marked unknown. Interactive rerenders can make text
-anchors stale; the quoted text and immutable artifact ID remain in the feedback.
+anchors stale; the quoted text and exact immutable revision ID remain in the feedback.
 
 Drafts are kept in the browser tab's session storage when available. Each batch
 allows up to 20 comments, 1,000 characters per comment and 2,000 per quote, within
@@ -53,7 +216,8 @@ binding. A plugin reload, Gateway restart or missing SDK support can make feedba
 unavailable for an older artifact. Reading still follows normal expiry, and drafts
 stay in the browser. Request a fresh artifact rather than silently retargeting a
 reset/new conversation. Old versions without a captured binding cannot gain one
-merely by opening the page. The create tool reports `feedbackAvailable`.
+merely by opening the page. The create tool reports `feedbackAvailable`,
+`imagesAvailable`, and `chatAvailable` separately.
 
 
 **Upgrade dependency:** Feedback needs both documented
@@ -176,13 +340,13 @@ claim/read windows. Use it only if you separately manage the exposure policy.
 
 Preserve existing plugin paths/allowlists. If `plugins.allow` is configured,
 add `artifacts`. Validate config and reload using your installed OpenClaw runtime.
-Both tools require a trusted conversation session key. Fixed `publicBaseUrl`
+Publication tools require a trusted conversation session key. Fixed `publicBaseUrl`
 must be an HTTPS origin without credentials, path, query or fragment.
 
 ### Grant agent access (explicit opt-in)
 
 Installing or enabling this plugin is separate from allowing agents to use its
-tools. Both `artifact_create` and `artifact_revoke` are registered as **optional**;
+tools. All four plugin tools are registered as **optional**;
 installation alone does not grant them. These are manual setup instructions,
 not an automatic permission-granting installer.
 
@@ -228,6 +392,15 @@ claims access. Grant access only to the agents intended to publish artifacts.
 5. **Validate and apply** with the installed OpenClaw release's configuration
    validation/reload commands. A turn already in progress may retain its earlier
    tool surface; retry in a new turn after applying the configuration.
+
+For screenshot discussion and in-artifact Chat, additionally append
+`artifact_feedback_read` and `artifact_chat_respond` to the same intended scope's
+existing allow/alsoAllow list. Preserve all existing entries and restrictions.
+These are separate opt-ins: read admits image context; respond admits bounded
+artifact-only inference and current-original-route text delivery. The plugin
+does not grant either permission automatically. Feature availability is checked
+through the host's public tool-policy explainer at artifact creation; missing
+SDK/authority/policy support leaves the respective feature disabled.
 
 #### Verify without accidentally publishing
 

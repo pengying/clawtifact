@@ -7,19 +7,23 @@ import { createServer } from 'node:http';
 import { ArtifactStore } from '../src/store.js';
 import { FeedbackBroker } from '../src/feedback.js';
 import { createHandler } from '../src/http.js';
+import { ScreenshotStore } from '../src/images.js';
+import { ArtifactDiscussion } from '../src/discussion.js';
 const id = '12345678-1234-4234-8234-123456789abc';
-async function fixture(t, format, { target = {} } = {}) {
+async function fixture(t, format, { target = {}, features = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'feedback-http-'));
   let now = 1000; const calls = [];
   const store = new ArtifactStore({ file: join(dir, 'db'), now: () => now });
-  const broker = new FeedbackBroker({ now: () => now, system: { captureSessionEventTarget: async () => target, enqueueSessionEvent(text, opts) { calls.push({ text, opts }); return { accepted: Promise.resolve({ ok: true }), settled: Promise.resolve({ status: 'completed', delivered: true }) }; } } });
+  const images = features ? new ScreenshotStore({ now: () => now, codec: { getImageMetadata: async () => ({ width: 1, height: 1 }), resizeToJpeg: async () => Buffer.from([255,216,255,217]) } }) : undefined;
+  const broker = new FeedbackBroker({ images, now: () => now, system: { captureSessionEventTarget: async () => target, enqueueSessionEvent(text, opts) { calls.push({ text, opts }); return { accepted: Promise.resolve({ ok: true }), settled: Promise.resolve({ status: 'completed', delivered: true }) }; } } });
+  const discussion = new ArtifactDiscussion({ feedback: broker, now: () => now, complete: async () => { throw new Error('HTTP cannot invoke model'); } });
   const item = store.create({ title: 'Private title', [format]: format === 'html' ? '<!doctype html><html><body>SECRET-CONTENT<script>window.authored=true</script></body></html>' : '# SECRET-CONTENT', owner: 'source', expiresAt: 2000 });
-  broker.bind(item.id, await broker.capture({ agentId: 'main', sessionKey: 'source', deliveryContext: { channel: 'telegram', to: 'source', threadId: 'original-thread' } }), 2000);
+  broker.bind(item.id, await broker.capture({ agentId: 'main', sessionKey: 'source', ...(features ? { sessionId: 'incarnation' } : {}), deliveryContext: { channel: 'telegram', to: 'source', threadId: 'original-thread' } }), 2000);
   let handler;
   const server = createServer((req, res) => handler(req, res));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  handler = createHandler({ store, origin, secure: false, feedback: broker });
+  handler = createHandler({ store, origin, secure: false, feedback: broker, images, discussion });
   t.after(async () => { await new Promise(resolve => server.close(resolve)); store.close(); rmSync(dir, { recursive: true }); });
   const path = '/artifacts/' + item.token;
   const session = store.claim(item.token);
@@ -30,9 +34,9 @@ async function fixture(t, format, { target = {} } = {}) {
   const csrf = /data-csrf="([A-Za-z0-9_-]{43})"/.exec(html)?.[1];
   const csrfCookie = host.headers.getSetCookie().find(x => x.startsWith('oc_art_feedback='))?.split(';')[0];
   const cookie = `oc_art_session=${session}; ${csrfCookie || ''}`;
-  const payload = { id, csrf, comments: [{ text: 'Explain this section', anchor: { type: 'text', quote: 'SECRET-CONTENT', prefix: '', suffix: '' } }] };
+  const payload = { id, csrf, revisionId:item.revisionId, comments: [{ text: 'Explain this section', anchor: { type: 'text', quote: 'SECRET-CONTENT', prefix: '', suffix: '' } }] };
   const post = (data = payload, overrides = {}) => request('/feedback', { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json', ...overrides }, body: JSON.stringify(data) });
-  return { store, broker, item, calls, request, post, html, csrf, cookie, payload, expire: () => { now = 2000; } };
+  return { store, broker, item, calls, request, post, html, csrf, cookie, payload, origin, expire: () => { now = 2000; } };
 }
 for (const format of ['markdown', 'html']) test(`${format}: authored content is isolated from the credentialed overlay`, async t => {
   const f = await fixture(t, format);
@@ -80,4 +84,29 @@ test('missing opaque capture authority disables the browser feedback boundary', 
   assert.equal(f.calls.length, 0);
   const status = await f.request('/feedback', { headers: { cookie: f.cookie } });
   assert.deepEqual(await status.json(), { enabled: false, batches: [] });
+});
+
+test('image and Chat routes preserve claim, CSRF, original target and expiry checks', async t => {
+  const f = await fixture(t, 'html', { features: true });
+  const headers = { cookie: f.cookie, origin: f.origin, 'content-type': 'application/json' };
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXioAAAAASUVORK5CYII=';
+  const imageInput = { csrf: f.csrf, revisionId:f.item.revisionId, data: png, id: 'a'.repeat(32) };
+  const upload = (extra = {}) => f.request('/images', { method: 'POST', headers: { ...headers, ...extra }, body: JSON.stringify(imageInput) });
+  assert.equal((await upload({ cookie: '' })).status, 404);
+  assert.equal((await upload({ origin: 'https://evil.invalid' })).status, 404);
+  assert.equal((await upload()).status, 202);
+  const image = await (await upload()).json(); assert.equal(image.id, imageInput.id);
+  const body = { ...f.payload, comments: [{ text: 'Screenshot comment', anchor: { type: 'general' }, imageId: image.id }] };
+  assert.equal((await f.post(body)).status, 202);
+  assert.equal((await f.request('/images?id=' + image.id)).status, 404);
+  const read = await f.request('/images?id=' + image.id, { headers: { cookie: f.cookie } });
+  assert.equal(read.status, 200); assert.equal((await read.json()).mimeType, 'image/jpeg');
+  const chatInput = { csrf: f.csrf, revisionId:f.item.revisionId, id, text: 'Explain that screenshot' };
+  const chatPost = extra => f.request('/chat', { method: 'POST', headers: { ...headers, ...extra }, body: JSON.stringify(chatInput) });
+  assert.equal((await chatPost({ cookie: '' })).status, 404);
+  assert.equal((await chatPost({})).status, 202);
+  assert.equal(f.calls.length, 2, 'one feedback event and one Chat event; HTTP never invokes a model');
+  assert.equal(f.calls[1].opts.deliveryContext.threadId, 'original-thread');
+  f.expire();
+  assert.equal((await upload()).status, 404); assert.equal((await chatPost({})).status, 404);
 });

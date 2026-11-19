@@ -1,0 +1,26 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import plugin from '../index.js';
+test('original owner tools publish typed revisions, recover requests, and post one artifact message',async t=>{
+ const dir=mkdtempSync(join(tmpdir(),'live-tools-'));const reg={};
+ plugin.register({pluginConfig:{publicBaseUrl:'https://example.test'},logger:{error(){}},runtime:{state:{resolveStateDir:()=>dir},system:{captureSessionEventTarget:async()=>({}),enqueueSessionEvent(){throw new Error('No channel send');}},llm:{complete:async()=>{} }},registerTool(f){reg.factory=f;},registerHttpRoute(r){reg.route=r;},registerService(s){reg.service=s;}});
+ t.after(async()=>{await reg.service.stop();rmSync(dir,{recursive:true});});
+ const ctx={agentId:'main',sessionKey:'owner',sessionId:'one',deliveryContext:{channel:'telegram',to:'owner',threadId:'topic'},assertInvocationCurrent(){}};
+ const tools=reg.factory(ctx),tool=name=>tools.find(x=>x.name===name);
+ assert.ok(tool('artifact_update'));assert.ok(tool('artifact_inspect'));assert.ok(tool('artifact_message'));
+ const doc=(await tool('artifact_create').execute('one',{title:'Code',code:'const x=1',language:'javascript',feedbackMode:'revise'})).details;
+ assert.match(doc.revisionId,/^[a-f0-9]{32}$/);assert.equal(doc.feedbackMode,'revise');
+ const update={id:doc.id,expectedRevision:doc.revisionId,requestId:'12345678-1234-4234-8234-123456789abc',svg:'<svg xmlns="http://www.w3.org/2000/svg"><circle r="20"/></svg>'};
+ const receipt=(await tool('artifact_update').execute('two',update)).details;
+ assert.equal(receipt.sequence,2);assert.deepEqual((await tool('artifact_update').execute('retry',update)).details,receipt);
+ const state=(await tool('artifact_inspect').execute('read',{id:doc.id,requestId:update.requestId})).details;
+ assert.equal(state.revisionId,receipt.revisionId);assert.equal(state.receipt.revisionId,receipt.revisionId);assert.match(state.svg,/<circle/);
+ const note={id:doc.id,messageId:'22345678-1234-4234-8234-123456789abc',revisionId:receipt.revisionId,text:'Updated to a diagram.'};
+ assert.equal((await tool('artifact_message').execute('note',note)).details.role,'agent');
+ const outsider=reg.factory({...ctx,sessionId:'retired'}).find(x=>x.name==='artifact_update');
+ await assert.rejects(outsider.execute('bad',{...update,expectedRevision:receipt.revisionId}));
+ assert.equal((await tool('artifact_inspect').execute('read',{id:doc.id})).details.sequence,2);
+});
